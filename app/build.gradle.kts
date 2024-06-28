@@ -19,6 +19,7 @@ repositories {
 dependencies {
     // This dependency is used by the application.
     implementation("org.mongodb:mongodb-driver-sync:5.1.1")
+    implementation("org.mongodb.spark:mongo-spark-connector_2.13:10.3.0")
     implementation("org.mongodb:mongodb-crypt:1.8.0")
     implementation("org.apache.spark:spark-sql_2.13:3.5.1")
 
@@ -39,7 +40,7 @@ testing {
 // Apply a specific Java toolchain to ease working on different environments.
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(8))
     }
 }
 

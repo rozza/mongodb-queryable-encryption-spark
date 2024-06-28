@@ -3,24 +3,13 @@
  */
 package demo;
 
-import com.mongodb.AutoEncryptionSettings;
-import com.mongodb.ClientEncryptionSettings;
-import com.mongodb.ConnectionString;
-import com.mongodb.MongoClientSettings;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.vault.DataKeyOptions;
-import com.mongodb.client.vault.ClientEncryption;
-import com.mongodb.client.vault.ClientEncryptions;
-import org.bson.BsonBinary;
-import org.bson.BsonDocument;
-import org.bson.Document;
+import com.mongodb.spark.sql.connector.config.MongoConfig;
+import com.mongodb.spark.sql.connector.config.ReadConfig;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.SparkSession;
 
-import java.security.SecureRandom;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
+import static java.util.Arrays.asList;
 
 public class App {
 
@@ -31,85 +20,35 @@ public class App {
         System.out.println("============================");
         System.out.println("\n");
 
-        // This would have to be the same master key as was used to create the encryption key
-        byte[] localMasterKey = new byte[96];
-        new SecureRandom().nextBytes(localMasterKey);
+        try (SparkSession spark = SparkSession.builder()
+                .appName("Client Side Encryption AutoEncryption Demo")
+                .master("local[*]")
+                .config(MongoConfig.PREFIX + MongoConfig.CLIENT_FACTORY_CONFIG, ClientEncryptionMongoClientFactory.class.getName())
+                .config(ReadConfig.WRITE_PREFIX + ReadConfig.DATABASE_NAME_CONFIG, "test")
+                .config(ReadConfig.WRITE_PREFIX + ReadConfig.COLLECTION_NAME_CONFIG, "coll")
+                .config(ReadConfig.READ_PREFIX + ReadConfig.DATABASE_NAME_CONFIG, "test")
+                .config(ReadConfig.READ_PREFIX + ReadConfig.COLLECTION_NAME_CONFIG, "coll")
+                .getOrCreate()) {
 
-        Map<String, Map<String, Object>> kmsProviders = new HashMap<>() {{
-            put("local", new HashMap<>() {{
-                put("key", localMasterKey);
-            }});
-        }};
 
-        String keyVaultNamespace = "encryption.__keyVault";
-        ClientEncryptionSettings clientEncryptionSettings = ClientEncryptionSettings.builder()
-                .keyVaultMongoClientSettings(MongoClientSettings.builder()
-                        .applyConnectionString(new ConnectionString("mongodb://localhost"))
-                        .build())
-                .keyVaultNamespace(keyVaultNamespace)
-                .kmsProviders(kmsProviders)
-                .build();
-
-        BsonBinary dataKeyId;
-        try (ClientEncryption clientEncryption = ClientEncryptions.create(clientEncryptionSettings)) {
-            dataKeyId = clientEncryption.createDataKey("local", new DataKeyOptions());
-        }
-        String base64DataKeyId = Base64.getEncoder().encodeToString(dataKeyId.getData());
-
-        final String dbName = "test";
-        final String collName = "coll";
-        AutoEncryptionSettings autoEncryptionSettings = AutoEncryptionSettings.builder()
-                .keyVaultNamespace(keyVaultNamespace)
-                .kmsProviders(kmsProviders)
-                .schemaMap(new HashMap<>() {{
-                    put(dbName + "." + collName,
-                            // Need a schema that references the new data key
-                            BsonDocument.parse("{"
-                                    + "  properties: {"
-                                    + "    encryptedField: {"
-                                    + "      encrypt: {"
-                                    + "        keyId: [{"
-                                    + "          \"$binary\": {"
-                                    + "            \"base64\": \"" + base64DataKeyId + "\","
-                                    + "            \"subType\": \"04\""
-                                    + "          }"
-                                    + "        }],"
-                                    + "        bsonType: \"string\","
-                                    + "        algorithm: \"AEAD_AES_256_CBC_HMAC_SHA_512-Deterministic\""
-                                    + "      }"
-                                    + "    }"
-                                    + "  },"
-                                    + "  \"bsonType\": \"object\""
-                                    + "}"));
-                }}).build();
-
-        MongoClientSettings clientSettings = MongoClientSettings.builder()
-                .autoEncryptionSettings(autoEncryptionSettings)
-                .build();
-
-        try (MongoClient mongoClient = MongoClients.create(clientSettings)) {
-            MongoCollection<Document> collection = mongoClient.getDatabase("test").getCollection("coll");
-            collection.drop(); // Clear old data
+            Dataset<String> jsonData = spark.createDataset(asList("{\"_id\": 1, \"encryptedField\": \"123456789\"}",
+                    "{\"_id\": 2, \"encryptedField\": \"987654321\"}"), Encoders.STRING());
 
             System.out.println("  > Inserting some data:");
-            System.out.println(collection.insertOne(new Document("encryptedField", "123456789")));
+            spark.read().json(jsonData).write().format("mongodb").mode("OVERWRITE").save();
 
             System.out.println("  > Finding the data:");
-            System.out.println(collection.find().first().toJson());
-        }
-
-        try (MongoClient mongoClientNoEncryption = MongoClients.create()) {
-            MongoCollection<Document> encryptedCollection = mongoClientNoEncryption.getDatabase("test")
-                    .getCollection("coll");
+            spark.read().format("mongodb").load().show();
 
             System.out.println("\n  > Finding the data: without mongo-crypt: \n");
-            System.out.println(encryptedCollection.find().first().toJson());
+            spark.read().format("mongodb")
+                    .option(MongoConfig.CLIENT_FACTORY_CONFIG, MongoConfig.CLIENT_FACTORY_DEFAULT).load().show();
+
         }
 
         System.out.println("============================");
         System.out.println("         fin.");
         System.out.println("============================");
         System.out.println("\n");
-
     }
 }
