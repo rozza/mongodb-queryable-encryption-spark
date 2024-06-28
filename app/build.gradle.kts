@@ -19,9 +19,9 @@ repositories {
 dependencies {
     // This dependency is used by the application.
     implementation("org.mongodb:mongodb-driver-sync:5.1.1")
-    implementation("org.mongodb.spark:mongo-spark-connector_2.13:10.3.0")
+    implementation("org.mongodb.spark:mongo-spark-connector_2.12:10.3.0")
     implementation("org.mongodb:mongodb-crypt:1.8.0")
-    implementation("org.apache.spark:spark-sql_2.13:3.5.1")
+    implementation("org.apache.spark:spark-sql_2.12:3.5.1")
 
     // Make slf4j quiet
     implementation("org.slf4j:slf4j-nop:1.7.36")
